@@ -18,6 +18,18 @@ export type Employee = {
   updated_at: string;
 };
 
+export type EmployeeListMeta = {
+  page: number;
+  per_page: number;
+  total_count: number;
+  total_pages: number;
+};
+
+export type EmployeeListResponse = {
+  employees: Employee[];
+  meta: EmployeeListMeta;
+};
+
 export type EmployeePayload = {
   first_name: string;
   last_name: string;

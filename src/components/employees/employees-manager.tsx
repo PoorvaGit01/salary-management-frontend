@@ -22,12 +22,22 @@ import {
   TextField,
 } from "@radix-ui/themes";
 import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  MagnifyingGlassIcon,
   Pencil1Icon,
   PersonIcon,
   PlusIcon,
   TrashIcon,
 } from "@radix-ui/react-icons";
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ApiError,
   createEmployee,
@@ -35,7 +45,12 @@ import {
   listEmployees,
   updateEmployee,
 } from "@/lib/api/employees";
-import type { Employee, EmployeePayload, EmploymentStatus } from "@/types/employee";
+import type {
+  Employee,
+  EmployeeListMeta,
+  EmployeePayload,
+  EmploymentStatus,
+} from "@/types/employee";
 
 const STATUS_OPTIONS: { value: EmploymentStatus; label: string }[] = [
   { value: "active", label: "Active" },
@@ -153,6 +168,15 @@ function validateForm(f: FormState): string[] {
   return errs;
 }
 
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(id);
+  }, [value, delayMs]);
+  return debounced;
+}
+
 function formToPayload(f: FormState): EmployeePayload {
   const sal = Number.parseFloat(f.salary);
   return {
@@ -175,6 +199,11 @@ function formToPayload(f: FormState): EmployeePayload {
 export function EmployeesManager() {
   const formId = useId();
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [meta, setMeta] = useState<EmployeeListMeta | null>(null);
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(25);
+  const [searchInput, setSearchInput] = useState("");
+  const debouncedSearch = useDebouncedValue(searchInput, 400);
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
 
@@ -189,24 +218,53 @@ export function EmployeesManager() {
   const [deleteTarget, setDeleteTarget] = useState<Employee | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setListError(null);
-    try {
-      const data = await listEmployees();
-      setEmployees(data);
-    } catch (e) {
-      setListError(e instanceof ApiError ? e.messages.join(" ") : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const [refetchNonce, setRefetchNonce] = useState(0);
+  const prevSearchRef = useRef<string | null>(null);
 
   useEffect(() => {
-    queueMicrotask(() => {
-      void load();
-    });
-  }, [load]);
+    const ac = new AbortController();
+    const searchChanged =
+      prevSearchRef.current !== null &&
+      prevSearchRef.current !== debouncedSearch;
+    if (prevSearchRef.current === null) {
+      prevSearchRef.current = debouncedSearch;
+    } else if (searchChanged) {
+      prevSearchRef.current = debouncedSearch;
+      if (page !== 1) {
+        queueMicrotask(() => {
+          setPage(1);
+        });
+        return () => ac.abort();
+      }
+    }
+
+    void (async () => {
+      setLoading(true);
+      setListError(null);
+      try {
+        const data = await listEmployees(
+          {
+            page,
+            per_page: perPage,
+            q: debouncedSearch.trim() || undefined,
+          },
+          { signal: ac.signal },
+        );
+        setEmployees(data.employees);
+        setMeta(data.meta);
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        setListError(e instanceof ApiError ? e.messages.join(" ") : String(e));
+      } finally {
+        if (!ac.signal.aborted) setLoading(false);
+      }
+    })();
+    return () => ac.abort();
+  }, [page, perPage, debouncedSearch, refetchNonce]);
+
+  const refetch = useCallback(() => {
+    setRefetchNonce((n) => n + 1);
+  }, []);
 
   const openCreate = () => {
     setDialogMode("create");
@@ -240,7 +298,7 @@ export function EmployeesManager() {
         await updateEmployee(editingId, payload);
       }
       setDialogOpen(false);
-      await load();
+      refetch();
     } catch (err) {
       setFormError(
         err instanceof ApiError ? err.messages.join(" ") : String(err),
@@ -257,7 +315,7 @@ export function EmployeesManager() {
       await deleteEmployee(deleteTarget.id);
       setDeleteOpen(false);
       setDeleteTarget(null);
-      await load();
+      refetch();
     } catch (err) {
       setListError(
         err instanceof ApiError ? err.messages.join(" ") : String(err),
@@ -323,19 +381,60 @@ export function EmployeesManager() {
 
         <Card size="3">
           <Flex direction="column" gap="4">
-            <Flex align="center" justify="between" gap="3" wrap="wrap">
+            <Flex align="start" justify="between" gap="4" wrap="wrap">
               <div>
                 <Text weight="medium" size="4">
                   Directory
                 </Text>
                 <Text color="gray" size="2">
-                  {employees.length}{" "}
-                  {employees.length === 1 ? "person" : "people"}
+                  {meta
+                    ? `${meta.total_count.toLocaleString()} total`
+                    : "—"}
                 </Text>
               </div>
-              <Button size="2" variant="soft" onClick={() => void load()}>
-                Refresh
-              </Button>
+              <Flex
+                align="center"
+                gap="3"
+                wrap="wrap"
+                flexGrow="1"
+                justify="end"
+                style={{ minWidth: "min(100%, 20rem)" }}
+              >
+                <TextField.Root
+                  size="2"
+                  placeholder="Search name, email, role, department…"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  style={{ flex: "1 1 14rem", minWidth: "12rem" }}
+                >
+                  <TextField.Slot side="left">
+                    <MagnifyingGlassIcon height="16" width="16" aria-hidden />
+                  </TextField.Slot>
+                </TextField.Root>
+                <Flex align="center" gap="2">
+                  <Text size="2" color="gray" as="span">
+                    Per page
+                  </Text>
+                  <Select.Root
+                    size="2"
+                    value={String(perPage)}
+                    onValueChange={(v) => {
+                      setPerPage(Number(v));
+                      setPage(1);
+                    }}
+                  >
+                    <Select.Trigger placeholder="Page size" />
+                    <Select.Content position="popper">
+                      <Select.Item value="25">25</Select.Item>
+                      <Select.Item value="50">50</Select.Item>
+                      <Select.Item value="100">100</Select.Item>
+                    </Select.Content>
+                  </Select.Root>
+                  <Button size="2" variant="soft" onClick={() => refetch()}>
+                    Refresh
+                  </Button>
+                </Flex>
+              </Flex>
             </Flex>
             <Separator size="4" />
 
@@ -344,7 +443,7 @@ export function EmployeesManager() {
                 <Spinner size="3" />
                 <Text color="gray">Loading employees…</Text>
               </Flex>
-            ) : employees.length === 0 ? (
+            ) : meta && meta.total_count === 0 ? (
               <Flex
                 direction="column"
                 align="center"
@@ -353,14 +452,26 @@ export function EmployeesManager() {
                 py="9"
               >
                 <Text color="gray" size="3" align="center">
-                  No employees yet. Create your first record to get started.
+                  {debouncedSearch.trim()
+                    ? "No employees match your search."
+                    : "No employees yet. Create your first record to get started."}
                 </Text>
-                <Button size="3" onClick={openCreate}>
-                  <Flex align="center" gap="2">
-                    <PlusIcon width={18} height={18} />
-                    Add employee
-                  </Flex>
-                </Button>
+                {!debouncedSearch.trim() ? (
+                  <Button size="3" onClick={openCreate}>
+                    <Flex align="center" gap="2">
+                      <PlusIcon width={18} height={18} />
+                      Add employee
+                    </Flex>
+                  </Button>
+                ) : (
+                  <Button
+                    size="2"
+                    variant="soft"
+                    onClick={() => setSearchInput("")}
+                  >
+                    Clear search
+                  </Button>
+                )}
               </Flex>
             ) : (
               <ScrollArea scrollbars="horizontal" type="hover">
@@ -455,6 +566,63 @@ export function EmployeesManager() {
                 </Table.Root>
               </ScrollArea>
             )}
+            {meta && meta.total_count > 0 ? (
+              <Flex
+                align="center"
+                justify="between"
+                gap="3"
+                wrap="wrap"
+                pt="1"
+              >
+                <Text size="2" color="gray">
+                  {(() => {
+                    const start = (meta.page - 1) * meta.per_page + 1;
+                    const end = Math.min(
+                      meta.page * meta.per_page,
+                      meta.total_count,
+                    );
+                    return `Showing ${start.toLocaleString()}–${end.toLocaleString()} of ${meta.total_count.toLocaleString()}`;
+                  })()}
+                </Text>
+                <Flex align="center" gap="2">
+                  <Button
+                    size="2"
+                    variant="soft"
+                    disabled={meta.page <= 1 || loading}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  >
+                    <Flex align="center" gap="1">
+                      <ChevronLeftIcon width={16} height={16} aria-hidden />
+                      Previous
+                    </Flex>
+                  </Button>
+                  <Text size="2">
+                    Page {meta.page} of {Math.max(meta.total_pages, 1)}
+                  </Text>
+                  <Button
+                    size="2"
+                    variant="soft"
+                    disabled={
+                      loading ||
+                      meta.total_pages === 0 ||
+                      meta.page >= meta.total_pages
+                    }
+                    onClick={() =>
+                      setPage((p) =>
+                        meta.total_pages === 0
+                          ? p
+                          : Math.min(meta.total_pages, p + 1),
+                      )
+                    }
+                  >
+                    <Flex align="center" gap="1">
+                      Next
+                      <ChevronRightIcon width={16} height={16} aria-hidden />
+                    </Flex>
+                  </Button>
+                </Flex>
+              </Flex>
+            ) : null}
           </Flex>
         </Card>
       </Container>

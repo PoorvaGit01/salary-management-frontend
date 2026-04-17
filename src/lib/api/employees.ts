@@ -1,6 +1,17 @@
-import type { Employee, EmployeePayload } from "@/types/employee";
+import type {
+  Employee,
+  EmployeeListResponse,
+  EmployeePayload,
+} from "@/types/employee";
 
 const BASE = "/api/v1/employees";
+
+export type ListEmployeesParams = {
+  page?: number;
+  per_page?: number;
+  /** Case-insensitive search across name, email, job title, department, employee number */
+  q?: string;
+};
 
 export class ApiError extends Error {
   readonly status: number;
@@ -39,13 +50,37 @@ async function parseJson(res: Response): Promise<unknown> {
   }
 }
 
-export async function listEmployees(): Promise<Employee[]> {
-  const res = await fetch(BASE, { cache: "no-store" });
-  const body = (await parseJson(res)) as Employee[] | { errors?: string[] };
+function buildListUrl(params?: ListEmployeesParams): string {
+  if (!params) return BASE;
+  const sp = new URLSearchParams();
+  if (params.page != null) sp.set("page", String(params.page));
+  if (params.per_page != null) sp.set("per_page", String(params.per_page));
+  if (params.q?.trim()) sp.set("q", params.q.trim());
+  const q = sp.toString();
+  return q ? `${BASE}?${q}` : BASE;
+}
+
+export async function listEmployees(
+  params?: ListEmployeesParams,
+  init?: RequestInit,
+): Promise<EmployeeListResponse> {
+  const res = await fetch(buildListUrl(params), {
+    cache: "no-store",
+    ...init,
+  });
+  const body = (await parseJson(res)) as
+    | EmployeeListResponse
+    | { errors?: string[]; error?: string };
   if (!res.ok) {
     throw new ApiError(res.status, body as { errors?: string[]; error?: string });
   }
-  return body as Employee[];
+  const data = body as EmployeeListResponse;
+  if (!Array.isArray(data.employees) || !data.meta) {
+    throw new ApiError(res.status, {
+      error: "Invalid employees list response",
+    });
+  }
+  return data;
 }
 
 export async function createEmployee(
