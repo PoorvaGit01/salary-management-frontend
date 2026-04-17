@@ -32,7 +32,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <Theme
-          accentColor="blue"
+          accentColor="green"
           grayColor="slate"
           radius="medium"
           className="flex min-h-full flex-1 flex-col"
