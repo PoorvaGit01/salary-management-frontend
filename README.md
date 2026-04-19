@@ -1,5 +1,24 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## API integration (with Rails)
+
+Run the **Rails API on port 3000** and this app on **3001** so both can run locally. See **[INTEGRATION.md](../INTEGRATION.md)** in the repo root for ports and the `/api/v1` proxy.
+
+### Environment variables
+
+1. Copy the example file and adjust if your API is not on `127.0.0.1:3000`:
+
+   ```bash
+   cp .env.example .env.local
+   ```
+
+2. **`BACKEND_URL`** — base URL of the Rails API (no trailing slash). Next.js reads this in `next.config.ts` to rewrite browser requests from `/api/v1/*` to the backend.
+
+```bash
+PORT=3001 yarn dev
+# → http://localhost:3001
+```
+
 ## Getting Started
 
 First, run the development server:
@@ -14,7 +33,7 @@ pnpm dev
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+By default Next.js uses port **3000**; use **3001** when Rails already uses 3000 (see integration note above).
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
