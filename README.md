@@ -1,5 +1,11 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Live Links
+
+- Frontend: https://salary-management-frontend.vercel.app/
+- Backend API: https://salary-management-backend-fxer.onrender.com/api/v1/employees
+- Loom Demo: https://www.loom.com/share/1126c3fe3a7a42d485a8e55df9815807
+
 ## API integration (with Rails)
 
 Run the **Rails API on port 3000** and this app on **3001** so both can run locally. See **[INTEGRATION.md](../INTEGRATION.md)** in the repo root for ports and the `/api/v1` proxy.
